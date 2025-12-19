@@ -375,15 +375,16 @@ apply_fixes() {
     sed -i 's/^license = "Apache-2.0"$/license = {text = "Apache-2.0"}/' pyproject.toml
     sed -i '/^license-files = /d' pyproject.toml
 
-    # Fix 2: CMakeLists.txt SM100/SM120 MOE kernels (check if already applied)
-    if grep -q 'cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f;12.0f"' CMakeLists.txt; then
-        log_info "CMakeLists.txt SM100/SM120 fix already applied"
+    # Fix 2: CMakeLists.txt SM100/SM120 MOE kernels (idempotent)
+    log_info "Ensuring CMakeLists.txt SM100/SM120 arch fixes..."
+    # Always attempt both replacements; they are no-ops if already applied
+    sed -i 's/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f"/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f;12.0f"/' CMakeLists.txt
+    sed -i 's/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0a"/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0a;12.1a"/' CMakeLists.txt
+    if grep -q 'cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f;12.0f"' CMakeLists.txt \
+       && grep -q 'cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0a;12.1a"' CMakeLists.txt; then
+        log_success "CMakeLists.txt SM100/SM120 arch fixes present"
     else
-        log_info "Applying CMakeLists.txt SM100/SM120 fix..."
-        # Fix for CUDA 13.0+ (sm_100, sm_120)
-        sed -i 's/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f"/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0f;11.0f;12.0f"/' CMakeLists.txt
-        # Fix for older CUDA (sm_121a)
-        sed -i 's/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0a"/cuda_archs_loose_intersection(SCALED_MM_ARCHS "10.0a;12.1a"/' CMakeLists.txt
+        log_warning "CMakeLists.txt SM100/SM120 arch fixes may not have applied; please check manually"
     fi
 
     # Fix 3: flashinfer-python license field (pre-emptive fix)
