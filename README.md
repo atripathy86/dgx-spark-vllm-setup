@@ -53,6 +53,7 @@ Options:
 - **CUDA:** 13.0 or later (driver 580.95.05+)
 - **Disk Space:** ~50GB free
 - **RAM:** 8GB+ recommended during build
+- **Build Dependencies:** Python 3.12 development headers (script will auto-detect and offer to install)
 
 ## What Gets Installed
 
@@ -209,6 +210,17 @@ To set up multi-node vLLM cluster:
 2. Follow [CLUSTER.md](./CLUSTER.md) for configuration
 
 ## Troubleshooting
+
+### Python Development Headers Missing
+
+**Symptom:** Build fails with CMake error: `file STRINGS file "/usr/include/python3.12/patchlevel.h" cannot be read`
+**Cause:** Python 3.12 development headers not installed
+**Solution (Automatic):** The installer now detects this and offers to install it automatically
+**Solution (Manual):**
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12-dev
+```
 
 ### Build Fails with "TypeError: can only concatenate str (not 'NoneType') to str"
 

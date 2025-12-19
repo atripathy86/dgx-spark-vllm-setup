@@ -131,6 +131,62 @@ preflight_checks() {
         exit 1
     fi
 
+    # Check for Python development headers
+    log_info "Checking for Python ${PYTHON_VERSION} development headers..."
+    PYTHON_INCLUDE_DIR="/usr/include/python${PYTHON_VERSION}"
+    PYTHON_PATCHLEVEL="${PYTHON_INCLUDE_DIR}/patchlevel.h"
+    
+    if [[ ! -f "$PYTHON_PATCHLEVEL" ]]; then
+        log_error "Python ${PYTHON_VERSION} development headers not found!"
+        log_error "Required file missing: $PYTHON_PATCHLEVEL"
+        echo ""
+        log_info "To fix this error, install the development package:"
+        echo -e "  ${GREEN}sudo apt-get update${NC}"
+        echo -e "  ${GREEN}sudo apt-get install -y python${PYTHON_VERSION}-dev${NC}"
+        echo ""
+        read -p "Would you like to install it now? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Installing python${PYTHON_VERSION}-dev..."
+            sudo apt-get update && sudo apt-get install -y "python${PYTHON_VERSION}-dev"
+            if [[ ! -f "$PYTHON_PATCHLEVEL" ]]; then
+                log_error "Installation failed. Please install manually and retry."
+                exit 1
+            fi
+            log_success "Python development headers installed successfully"
+        else
+            log_error "Python development headers are required. Exiting."
+            exit 1
+        fi
+    else
+        log_success "Python ${PYTHON_VERSION} development headers found"
+    fi
+
+    # Check for essential build tools
+    log_info "Checking for essential build tools..."
+    MISSING_TOOLS=()
+    
+    if ! check_command gcc; then
+        MISSING_TOOLS+=("build-essential")
+    fi
+    
+    if ! check_command pkg-config; then
+        MISSING_TOOLS+=("pkg-config")
+    fi
+    
+    if [[ ${#MISSING_TOOLS[@]} -gt 0 ]]; then
+        log_warning "Missing build tools: ${MISSING_TOOLS[*]}"
+        read -p "Install missing build tools? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Installing build tools..."
+            sudo apt-get update && sudo apt-get install -y "${MISSING_TOOLS[@]}"
+            log_success "Build tools installed"
+        else
+            log_warning "Some builds may fail without these tools"
+        fi
+    fi
+
     log_success "Pre-flight checks passed!"
 }
 
@@ -331,9 +387,20 @@ apply_fixes() {
     fi
 
     # Fix 3: flashinfer-python license field (pre-emptive fix)
-    log_info "Pre-fixing flashinfer-python license issue..."
+    log_info "Pre-downloading and fixing flashinfer-python..."
     # Clear uv cache for flashinfer to ensure clean download
     rm -rf "$HOME/.cache/uv/sdists-v9/pypi/flashinfer-python" 2>/dev/null || true
+    
+    # Pre-download flashinfer without building to get it in cache
+    source "$INSTALL_DIR/.vllm/bin/activate"
+    uv pip download flashinfer-python==0.4.1 --no-binary flashinfer-python --dest /tmp/flashinfer-temp 2>/dev/null || true
+    
+    # Now fix it in the cache (don't fail if not found - will be fixed during build)
+    sleep 2  # Give time for cache to be populated
+    fix_flashinfer_license || log_info "Will apply flashinfer fix during build if needed"
+    
+    # Clean up temp download
+    rm -rf /tmp/flashinfer-temp
 
     # Fix 4: GPT-OSS Triton MOE kernels for Qwen3/gpt-oss support
     if [ -f "$SCRIPT_DIR/patches/gpt_oss_triton_moe.patch" ]; then
@@ -368,8 +435,20 @@ fix_flashinfer_license() {
     if [ -n "$FLASHINFER_DIRS" ]; then
         for PYPROJECT in $FLASHINFER_DIRS; do
             log_info "Patching $PYPROJECT"
+            
+            # Check if already fixed
+            if grep -q 'license = {text = "Apache-2.0"}' "$PYPROJECT"; then
+                log_info "Already patched: $PYPROJECT"
+                continue
+            fi
+            
+            # Fix the license field format
             sed -i 's/^license = "Apache-2.0"$/license = {text = "Apache-2.0"}/' "$PYPROJECT"
+            
+            # Remove license-files if present (causes conflicts)
             sed -i '/^license-files = /d' "$PYPROJECT"
+            
+            log_success "Patched: $PYPROJECT"
         done
         log_success "flashinfer-python license field fixed"
         return 0
